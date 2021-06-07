@@ -1,4 +1,5 @@
 # bibliotecas
+import pandas as pd
 import psycopg2 as pg
 # noinspection PyUnresolvedReferences
 import chromedriver_binary
@@ -25,3 +26,9 @@ class Database:
     def engine(host=host, name=name, user=user, password=password, port=port):
         engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{name}')
         return engine
+
+    @staticmethod
+    def get(sql, host=host, name=name, user=user, password=password):
+        connection = pg.connect(host=host, database=name, user=user, password=password)
+        df = pd.read_sql(sql, con=connection)
+        return df
