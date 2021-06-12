@@ -11,12 +11,13 @@ import pandas as pd
 from decouple import config
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.select import Select
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
 # Módulos internos
 from models.chromedriver import ChromeDriver
+from models.database import Database
 
 
 class CrawlerCei:
@@ -226,3 +227,179 @@ class CrawlerCei:
             return df
         finally:
             self.driver.quit()
+
+
+class CrawlerInvesting:
+
+    def __init__(
+            self,
+            username=config('INVEST_LOGIN'),
+            password=config('INVEST_PASSWORD')
+    ):
+
+        self.BASE_URL = 'https://br.investing.com/'
+        self.username = username
+        self.password = password
+
+        self.tablename_desdobramentos = 'desdobramentos'
+        self.tablename_splits = "brinvesting_splits"
+
+    def _habilita_driver(self):
+        self.driver = ChromeDriver()
+        time.sleep(5.0)
+
+    def _login(self, direct=False):
+        # habilita uso direto
+        if direct:
+            self._habilita_driver()
+        # acessa página de login
+        url = self.BASE_URL + '/login'
+        self.driver.get(url)
+        time.sleep(5.0)
+        # clica no pop-up sobre cookies
+        btn_cookies = self.driver.find_element_by_id('onetrust-accept-btn-handler')
+        btn_cookies.click()
+        time.sleep(5.0)
+        # acessa campo de usuário e digita cpf
+        txt_username = self.driver.find_element_by_id('loginFormUser_email')
+        txt_username.clear()
+        txt_username.send_keys(self.username)
+        time.sleep(5.0)
+        # acessa campo de senha e digita a senha
+        txt_password = self.driver.find_element_by_id('loginForm_password')
+        txt_password.clear()
+        txt_password.send_keys(self.password)
+        # localiza e clica no botão de login
+        xpath = "//*[@id='signup']/a"
+        condition = EC.element_to_be_clickable((By.XPATH, xpath))
+        btn = WebDriverWait(self.driver, 20).until(condition)
+        btn.click()
+
+    # def _busca_splits(self):
+    #
+    #     # acessa página de splits
+    #     self.driver.get('https://br.investing.com/stock-split-calendar/')
+    #     # clica no botão do filtro de calendário
+    #     element_id = 'datePickerToggleBtn'
+    #     ec = EC.element_to_be_clickable((By.ID, element_id))
+    #     btn = WebDriverWait(self.driver, 20).until(ec)
+    #     btn.click()
+    #     time.sleep(2.0)
+    #     # atribui ao campo de início a data de janeiro de 2018
+    #     element_id = 'startDate'
+    #     start = self.driver.find_element_by_id(element_id)
+    #     start.clear()
+    #     start.click()
+    #     start.send_keys('01/01/2018')
+    #     time.sleep(2.0)
+    #     # clica no botão para aplicar o filtro de data
+    #     element_id = 'applyBtn'
+    #     ec = EC.element_to_be_clickable((By.ID, element_id))
+    #     btn = WebDriverWait(self.driver, 20).until(ec)
+    #     btn.click()
+    #     time.sleep(5.0)
+    #
+    #     def calcula_fator(x):
+    #         splitted = x.split(':')
+    #         y = float(splitted[0]) // float(splitted[1])
+    #         y = round(y, 3)
+    #         return y
+    #
+    #     # prepara html
+    #     soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+    #     element_id = 'stock-splitCalendarData'
+    #     # obtem seleção do html
+    #     html = soup.find_all(id=element_id)
+    #     # obtém dataframe
+    #     df = pd.read_html(str(html))[0]
+    #     # corrige nome das colunas
+    #     df.columns = ['data', 'ticker', 'fator']
+    #     # normaliza ticker
+    #     df['ticker'] = df['ticker'].apply(lambda x: x.split('(')[-1])
+    #     df['ticker'] = df['ticker'].apply(lambda x: x.replace(')', ''))
+    #     # calcula e normaliza fator
+    #     df['fator'] = df['fator'].apply(lambda x: calcula_fator(x))
+    #     # corrige dypes
+    #     df = df.astype({'data': 'datetime64'})
+    #     # corrige gaps em data
+    #     df.fillna(method='ffill', inplace=True)
+    #     return df
+
+    def _busca_e_salva_tabela_de_splits(self):
+        # acessa página de splits
+        self.driver.get('https://br.investing.com/stock-split-calendar/')
+        # clica no botão do filtro de calendário
+        element_id = 'datePickerToggleBtn'
+        ec = EC.element_to_be_clickable((By.ID, element_id))
+        btn = WebDriverWait(self.driver, 20).until(ec)
+        btn.click()
+        time.sleep(2.0)
+        # atribui ao campo de início a data de janeiro de 2018
+        element_id = 'startDate'
+        start = self.driver.find_element_by_id(element_id)
+        start.clear()
+        start.click()
+        start.send_keys('01/01/2018')
+        time.sleep(2.0)
+        # clica no botão para aplicar o filtro de data
+        element_id = 'applyBtn'
+        ec = EC.element_to_be_clickable((By.ID, element_id))
+        btn = WebDriverWait(self.driver, 20).until(ec)
+        btn.click()
+        time.sleep(5.0)
+
+        def calcula_fator(x):
+            splitted = x.split(':')
+            y = float(splitted[0]) / float(splitted[1])
+            y = round(y, 3)
+            return y
+
+        # prepara html
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+        element_id = 'stock-splitCalendarData'
+        # obtem seleção do html
+        html = soup.find_all(id=element_id)
+        # obtém dataframe
+        df = pd.read_html(str(html))[0]
+        # corrige nome das colunas
+        df.columns = ['data', 'ticker', 'fator']
+        # normaliza ticker
+        df['ticker'] = df['ticker'].apply(lambda x: x.split('(')[-1])
+        df['ticker'] = df['ticker'].apply(lambda x: x.replace(')', ''))
+        # calcula e normaliza fator
+        df['fator'] = df['fator'].apply(lambda x: calcula_fator(x))
+        # corrige dypes
+        df = df.astype({'data': 'datetime64'})
+        # corrige gaps em data
+        df.fillna(method='ffill', inplace=True)
+        # salva a tabela original de splits
+        Database.atualizar_database(df, self.tablename_splits)
+
+    def _cria_ou_atualiza_tabela_de_desdobramentos(self):
+        # busca a tabela original no banco
+        df = Database.get(f"select * from {self.tablename_splits}")
+        # arreronda os valores quebrados
+        df['fator'] = df['fator'].apply(lambda fator: round(fator, 0))
+        # seleciona somente valores maiores que 1
+        s = df['fator'] > 1
+        desdobramentos = df[s].copy()
+        # cria ou atualiza tabela no banco de dados
+        Database.atualizar_database(desdobramentos, self.tablename_desdobramentos)
+
+    def _cria_ou_atualiza_tabela_de_bonificacoes(self):
+        # busca a tabela original no banco
+        df = Database.get(f"select * from {self.tablename_splits}")
+        # arreronda os valores quebrados
+        df['fator'] = df['fator'].apply(lambda fator: round(fator, 0))
+        # seleciona somente valores maiores que 1
+        s = df['fator'] > 1
+        desdobramentos = df[s].copy()
+        # cria ou atualiza tabela no banco de dados
+        Database.atualizar_database(desdobramentos, self.tablename_desdobramentos)
+
+    def atualizacao(self):
+        self._habilita_driver()
+        self._login()
+        self._busca_e_salva_tabela_de_splits()
+        self._cria_ou_atualiza_tabela_de_desdobramentos()
+        self.driver.quit()

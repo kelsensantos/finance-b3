@@ -1,36 +1,34 @@
+# bibliotecas
+import pandas as pd
 # External modules
 from yahooquery import Ticker
-# Local modules
-import models.errors as errors
 
 
-def ultimo_preco(ticker):
-    """ Retorna a cotação segundo último fechamento """
-    # A variável "errors" consolida eventuais erros em pontos diversos
-    ticker_sa = ticker + '.SA'
-    try:
-        # Obtem o preço através do yahooquery
-        preco = Ticker(ticker_sa).summary_detail[ticker_sa]['previousClose']
-    # Retorna e trata o erro, caso não funcione
-    except Exception as e:
-        preco = "Error"
-        # a variável "erros" é uma lista de erros que pode compor um dataframe
-        errors.add_error('ultimo_preco', e, ticker)
-        pass
-    return preco
+class Yahoo:
 
+    def __init__(self, ticker):
 
-def preco_atual(ticker):
-    """ Retorna a cotação segundo último fechamento """
-    # A variável "errors" consolida eventuais erros em pontos diversos
-    ticker_sa = ticker + '.SA'
-    try:
-        # Obtem o preço através do yahooquery
-        preco = Ticker(ticker_sa).financial_data[ticker_sa]['currentPrice']
-    # Retorna e trata o erro, caso não funcione
-    except Exception as e:
-        preco = "Error"
-        # a variável "erros" é uma lista de erros que pode compor um dataframe
-        errors.add_erros('ultimo_preco', e, ticker)
-        pass
-    return preco
+        self.ticker = ticker
+        self.ticker_sa = ticker + '.SA'
+        self.Ticker = Ticker(self.ticker_sa)
+        self.nome = self.Ticker.quote_type[self.ticker_sa]['shortName'].replace("  ", " ").replace("  ", " ").replace("  ", " ")
+        self.nome_completo = self.Ticker.quote_type[self.ticker_sa]['longName']
+        self.preco_ultimo = self.Ticker.summary_detail[self.ticker_sa]['previousClose']
+        self.preco_atual = self.Ticker.financial_data[self.ticker_sa]['currentPrice']
+        self.splits = self._splits()
+
+    def _splits(self):
+        """ Retorna a cotação segundo último fechamento """
+        # A variável "errors" consolida eventuais erros em pontos diversos
+        history = Ticker(self.ticker_sa).history()
+        # Obtem dataframe com splits através do yahooquery
+        if 'splits' in history.columns:
+            selecao = history['splits'] != 0
+            splits = history[selecao]
+            splits = splits[['splits']].reset_index()
+            # Renomear colunas
+            splits.rename(columns={'symbol': 'ticker', 'date': 'data'}, inplace=True)
+            splits['ticker'] = splits['ticker'].apply(lambda x: x.replace('.SA', ''))
+        else:
+            splits = pd.DataFrame()
+        return splits

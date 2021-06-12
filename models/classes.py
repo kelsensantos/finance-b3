@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
+from yahooquery import Ticker
 # módulos locais
 import models.errors as errors
 from models.chromedriver import ChromeDriver
