@@ -5,7 +5,7 @@ from decouple import config
 # from datetime import datetime
 # módulos internos
 from models.database import Database
-from models.crawlers import CrawlerCei, CrawlerInvesting
+from models.crawlers import CrawlerCei, CrawlerInvesting, CrawlerAdvfn, Handlers, CrawlerBvfm
 
 
 class Carteira:
@@ -13,47 +13,56 @@ class Carteira:
     def __init__(self):
 
         # nome da tabelas no banco de dados
-        self.tablename_negociacoes = 'negociacoes'
-        self.tablename_negociacoes_ajustadas = 'negociacoes_ajustadas'
-        self.tablename_desdobramentos = 'desdobramentos'
-        self.tablename_ativos = 'ativos'
+        self._tablename_negociacoes = 'negociacoes'
+        self._tablename_negociacoes_ajustadas = 'negociacoes_ajustadas'
+        self._tablename_desdobramentos = 'desdobramentos'
+        self._tablename_ativos = 'ativos'
+        # criação dos atributos atributos principais
+        self.negociacoes = self._set_negociacoes()
+        self.desdobramentos = self._set_desdobramentos()
+        self.negociacoes_ajustadas = self._set_negociacoes_ajustadas()
+        self.posicao = self._set_posicao()
 
-        """ criação de outros atributos """
-        # 1: negociacoes
+    def _set_negociacoes(self):
         try:
             # atributo com extrato original de negociações do sei
-            self.negociacoes = Database.get(f"select * from {self.tablename_negociacoes}")
+            df = Database.get(f"select * from {self._tablename_negociacoes}")
+            return df
         except Exception:
-            try:
-                # cria tabela e gera atributo, se ela não existir
-                self.preparacao_inicial()
-            except Exception:
-                self.atualizar_negociacoes()
-        # 2: desmembramentos
+            # cria tabela e gera atributo, se ela não existir
+            self.preparacao_inicial()
+            return Database.get(f"select * from {self._tablename_negociacoes}")
+
+    def _set_desdobramentos(self):
         try:
             # atributo com relação de eventos de desdobramento
-            self.desdobramentos = Database.get(f"select * from {self.tablename_desdobramentos}")
+            df = Database.get(f"select * from {self._tablename_desdobramentos}")
+            return df
         except Exception:
             # cria tabela e gera atributo, se ela não existir
             self.atualizar_splits()
-        # 3: negociacoes_ajustadas
+            return Database.get(f"select * from {self._tablename_desdobramentos}")
+
+    def _set_negociacoes_ajustadas(self):
         try:
             # atributo com negociações atualizadas com splits
-            self.negociacoes_ajustadas = Database.get(f"select * from {self.tablename_negociacoes_ajustadas}")
+            df = Database.get(f"select * from {self._tablename_negociacoes_ajustadas}")
+            return df
         except Exception:
             # cria tabela e gera atributo, se ela não existir
             self._ajustar_negociacoes_com_splits(self.negociacoes)
-        # 4: posicao
-        self.posicao = self.calcular_posicao()
-        try:
-            self.ativos = Database.get(f"select * from {self.tablename_ativos}")
-        except Exception:
-            # cria a tabela de ativos, se não existir
-            self.ativos = self._identifica_os_ativos()
+            return Database.get(f"select * from {self._tablename_negociacoes_ajustadas}")
+
+    def _set_posicao(self):
+        posicao = self._calcular_posicao()
+        return posicao
 
     def preparacao_inicial(self, xlsx=config('PATH_CARGA_INICIAL'), sobrescrever=False):
-        # realiza carga inicial
-        self._dar_carga_inicial(xlsx=xlsx, sobrescrever=sobrescrever)
+        try:
+            # realiza carga inicial
+            self._dar_carga_inicial(xlsx=xlsx, sobrescrever=sobrescrever)
+        except Exception:
+            pass
         # realiza atualização
         self.atualizacao()
 
@@ -61,7 +70,7 @@ class Carteira:
         # atualiza negociações no extrato do CEI
         self._atualizar_negociacoes_no_cei()
         # atualiza atributo com extrato original de negociacoes
-        self.negociacoes = Database.get(f"select * from {self.tablename_negociacoes}")
+        self.negociacoes = Database.get(f"select * from {self._tablename_negociacoes}")
 
     def atualizar_splits(self):
         # cria objeto para realizar crawler
@@ -69,7 +78,7 @@ class Carteira:
         # atualização geral dos atributos do objeto
         i.atualizacao()
         # atualiza atributo
-        self.desdobramentos = Database.get(f"select * from {self.tablename_desdobramentos}")
+        self.desdobramentos = Database.get(f"select * from {self._tablename_desdobramentos}")
         # aplica desdobramentos
         self._ajustar_negociacoes_com_splits(self.negociacoes)
 
@@ -110,7 +119,7 @@ class Carteira:
         'aquisicao_via'
         """
         # nome da tabela com as negociações originais no banco de dados
-        tablename = self.tablename_negociacoes
+        tablename = self._tablename_negociacoes
         # safeswitch para evitar sobrescrição adicental do banco
         try:
             df = Database.get(f'select * from {tablename}')
@@ -140,7 +149,7 @@ class Carteira:
         # grava no banco de dados
         Database.atualizar_database(df, tablename)
         # atualiza atributo
-        self.negociacoes = Database.get(f"select * from {self.tablename_negociacoes}")
+        self.negociacoes = Database.get(f"select * from {self._tablename_negociacoes}")
         return df
 
     def _atualizar_negociacoes_no_cei(self):
@@ -148,7 +157,7 @@ class Carteira:
         # cria um objeto de crawler
         cei = CrawlerCei()
         # nome da tabela com as negociações originais no banco de dados
-        tablename = self.tablename_negociacoes
+        tablename = self._tablename_negociacoes
         # lista de dataframes para concatenar
         dfs_to_concat = []
         # verifica se já há dados na tabela e resgata os dados
@@ -182,12 +191,11 @@ class Carteira:
         return df
 
     def _ajustar_negociacoes_com_splits(self, negociacoes):
-        desmembramentos = self.desdobramentos
 
-        def aplica_splits_nas_negociacoes(row):
+        def _aplica_splits_nas_negociacoes(row, desdobramentos):
             # seleciona somente os desdobramentos do ticker
-            selecao = desmembramentos['ticker'] == row['ticker']
-            desdobramentos_ticker = desmembramentos[selecao]
+            selecao = desdobramentos['ticker'] == row['ticker']
+            desdobramentos_ticker = desdobramentos[selecao]
             # aplica efeitos dos desdobramentos, casos existam
             if len(desdobramentos_ticker):
                 new_row = row.copy()
@@ -217,15 +225,15 @@ class Carteira:
         # acrescenta coluna para indicar aplicação de splits
         df['splitted'] = False
         # aplica splits
-        df.apply(lambda row: aplica_splits_nas_negociacoes(row), axis=1)
+        df.apply(lambda row: _aplica_splits_nas_negociacoes(row, desdobramentos=self.desdobramentos), axis=1)
         # grava no banco de dados
-        Database.atualizar_database(df, self.tablename_negociacoes_ajustadas)
+        Database.atualizar_database(df, self._tablename_negociacoes_ajustadas)
         # atualiza atributo
-        self.negociacoes_ajustadas = Database.get(f"select * from {self.tablename_negociacoes_ajustadas}")
+        self.negociacoes_ajustadas = Database.get(f"select * from {self._tablename_negociacoes_ajustadas}")
 
-    def calcular_posicao(self):
+    def _calcular_posicao(self):
         df = self.negociacoes_ajustadas
-        # agrupa tickers para calcular posição
+        # agrupa tickers para cálculo da posição
         posicao = df.groupby(df['ticker']).sum()['qtd_ajustada'].to_frame()
         # renomeia coluna coluna
         posicao.columns = ['posicao']
@@ -238,15 +246,208 @@ class Carteira:
         posicao = posicao[~subscricoes_vendidas]
         return posicao
 
-    def _identifica_os_ativos(self):
-        # identifica todos os ativos
-        # # passo1 : agrupa negociações por ativos
-        grupo = self.negociacoes.groupby('ticker')
-        # # passo2 : obtém lista somente com os tickers
-        chaves = grupo.groups.keys()
-        # cria um dataframe a partir da lista
-        ativos = pd.DataFrame({'ticker': chaves})
-        return ativos
+    """ métodos sobre os dados dos ativos """
 
-    def _preenche_tabela_de_ativos(self):
-        pass
+    def _identifica_os_ativos_negociados(self):
+        """ Identifica todos os ativos na certeira. """
+        # passo1 : agrupa negociações por ativos
+        grupo = self.negociacoes.groupby('ticker')
+        # passo2 : obtém lista somente com os tickers
+        chaves = grupo.groups.keys()
+        # passo3 : cria um dataframe a partir da lista
+        ativos_atualizados = pd.DataFrame({'ticker': chaves})
+        # retorna a lista de ativos
+        return ativos_atualizados
+
+    def atualizar_ativos(self):
+        df = self._identifica_os_ativos_negociados()
+        df.apply(lambda row: Ativo(row['ticker']), axis=1)
+
+    def buscar_ativos(self):
+        try:
+            df = Database.get(f'select * from {self._tablename_ativos}')
+        except Exception:
+            self.atualizar_ativos()
+            df = Database.get(f'select * from {self._tablename_ativos}')
+        return df
+
+
+class Ativo:
+
+    def __init__(self, ticker):
+        # crawlers, etc
+        self.advfn = CrawlerAdvfn(ticker=ticker)
+        # tabelas no banco de dados
+        self._tablename_ativos = 'ativos'
+        self._tablename_empresa = 'ativos_empresa'
+        self._tablename_eventos_corporativos = 'eventos_corporativos'
+        self._tablename_rendimentos = 'rendimentos'
+        self._tablename_rendimentos_acoes = 'rendimentos_acoes'
+        # verifica regularidade do banco
+        self._verifica_regularidade_do_banco()
+        # atributos principais sobre o ativo
+        self.ticker = self._set_ticker(ticker)
+        self.codigo_isin = self._set_codigo_isin()
+        self.tipo = self._set_tipo()
+        self.empresa = self._set_empresa()
+        self.rendimentos = self._set_rendimentos()
+        self.eventos_corporativos = self._set_eventos_coporativos()
+
+    def _verifica_regularidade_do_banco(self):
+        if not Database.verificar_existencia_de_tabela(self._tablename_ativos):
+            Database.execute(
+                f""" 
+                    CREATE TABLE {self._tablename_ativos} (
+                        ticker VARCHAR NOT NULL,
+                        codigo_isin VARCHAR,
+                        tipo VARCHAR,
+                        PRIMARY KEY(ticker) 
+                    )
+                """
+            )
+        if not Database.verificar_existencia_de_tabela(self._tablename_eventos_corporativos):
+            Database.execute(
+                f""" 
+                    CREATE TABLE {self._tablename_eventos_corporativos} (
+                        evento VARCHAR,
+                        codigo_isin VARCHAR,
+                        data_deliberacao DATE,
+                        negocios_ate DATE,
+                        fator FLOAT8,
+                        ativo_emitido VARCHAR,
+                        observacoes TEXT
+                    )
+                """
+            )
+        if not Database.verificar_existencia_de_tabela(self._tablename_rendimentos):
+            Database.execute(
+                f""" 
+                    CREATE TABLE {self._tablename_rendimentos} (
+                        tipo_rendimento VARCHAR,
+                        codigo_isin VARCHAR,
+                        data_deliberacao DATE,
+                        negocios_ate DATE,
+                        valor FLOAT8,
+                        relativo_a VARCHAR,
+                        ativo_emitido VARCHAR,
+                        data_pagamento DATE,
+                        observacoes TEXT
+                    )
+                """
+            )
+
+    def _set_ticker(self, ticker):
+        df = Database.get(f"select ticker from {self._tablename_ativos} where ticker = '{ticker}'")
+        if len(df):
+            return ticker
+        else:
+            Database.execute(f"INSERT INTO {self._tablename_ativos}(ticker) values('{ticker}')")
+            return ticker
+
+    def _set_codigo_isin(self):
+        # procura no banco de dados
+        df = Database.get(f"select codigo_isin from {self._tablename_ativos} where ticker = '{self.ticker}'")
+        if df.loc[0][0] is not None:
+            codigo_isin = df.loc[0][0]
+            return codigo_isin
+        else:
+            codigo_isin = self.advfn.codigo_isin()
+            Database.execute(
+                f"UPDATE {self._tablename_ativos} SET codigo_isin = '{codigo_isin}' where ticker = '{self.ticker}'"
+            )
+            return codigo_isin
+
+    def _set_tipo(self):
+        # procura no banco de dados
+        df = Database.get(f"select tipo from {self._tablename_ativos} where ticker = '{self.ticker}'")
+        if df.loc[0][0] is not None:
+            tipo = df.loc[0][0]
+            return tipo
+        else:
+            # busca o tipo
+            tipo = Handlers.tipo_ticker(self.ticker, self.codigo_isin)
+            # salva no banco de dados
+            Database.execute(
+                f"UPDATE {self._tablename_ativos} SET tipo = '{tipo}' where ticker = '{self.ticker}'"
+            )
+            return tipo
+
+    def _set_empresa(self):
+        if self.tipo == 'ação':
+            df = self._set_empresa_acao()
+            return df
+        else:
+            df = pd.DataFrame()
+            return df
+
+    def _set_empresa_acao(self):
+        # tenta buscar no banco de dados
+        try:
+            # procura no banco de dados
+            df = Database.get(f"select * from {self._tablename_empresa} as t where t.codigo = '{self.ticker}'")
+            if len(df):
+                return df
+            else:
+                # procura via crawler no advfn
+                df = self.advfn.dados_gerais_da_empresa()
+                # faz insert na base de dados
+                Database.insert_df(df, self._tablename_empresa)
+                return df
+        # cria a tabela no banco de dados, se ela não existir
+        except Exception:
+            # procura via crawler no advfn
+            df = self.advfn.dados_gerais_da_empresa()
+            # cria a tabela no banco de dados
+            Database.atualizar_database(df, self._tablename_empresa)
+            return df
+
+    def _set_rendimentos(self):
+        df = Database.get(
+            f"select * from {self._tablename_rendimentos} as t where t.codigo_isin = '{self.codigo_isin}'"
+        )
+        return df
+
+    def _set_eventos_coporativos(self):
+        df = Database.get(
+            f"select * from {self._tablename_eventos_corporativos} as t where t.codigo_isin = '{self.codigo_isin}'"
+        )
+        return df
+
+    def atualiza_eventos_e_rendimentos_de_acoes(self):
+        codigo_cvm = self.empresa['Código CVM'].loc[0]
+        [_eventos_corporativos, _rendimentos] = CrawlerBvfm.set_tabelas_de_acoes(codigo_cvm)
+
+        # atualiza eventos corporativos no banco
+        eventos_atuais = Database.get_table(self._tablename_eventos_corporativos)
+        to_concat = [eventos_atuais, _eventos_corporativos]
+        eventos_atualizados = pd.concat(to_concat)
+        eventos_atualizados.drop_duplicates(inplace=True)
+        Database.atualizar_database(eventos_atualizados, self._tablename_eventos_corporativos)
+
+        # atualiza rendimentos no banco
+        rendimentos_atuais = Database.get_table(self._tablename_rendimentos)
+        to_concat = [rendimentos_atuais, _rendimentos]
+        rendimentos_atualizados = pd.concat(to_concat)
+        rendimentos_atualizados.drop_duplicates(inplace=True)
+        Database.atualizar_database(rendimentos_atualizados, self._tablename_rendimentos)
+
+        # atualiza tabela com todos os rendimentos
+        try:
+            tabela_atual = Database.get_table(self._tablename_rendimentos)
+            # remove os valores anteriores da mesma empresa/ação
+            to_remove = tabela_atual['codigo'] == self.ticker[:-1]
+            to_remove = list(tabela_atual[to_remove].index)
+            tabela_atual.drop(to_remove)
+        except Exception:
+            tabela_atual = pd.DataFrame()
+        tabela_atualizada = CrawlerBvfm.todos_os_rendimentos_da_acao(codigo_cvm, self.ticker)
+        to_concat = [tabela_atual, tabela_atualizada]
+        nova_tabela = pd.concat(to_concat)
+        Database.atualizar_database(nova_tabela, self._tablename_rendimentos_acoes)
+
+        # atualiza atributos
+        self.rendimentos = self._set_rendimentos()
+        self.eventos_corporativos = self._set_eventos_coporativos()
+
+    def atualiza_eventos_e_rendimentos(self):
+        if self.tipo == 'ação': self.atualiza_eventos_e_rendimentos_de_acoes()
